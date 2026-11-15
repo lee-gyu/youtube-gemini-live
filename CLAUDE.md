@@ -25,6 +25,8 @@ Node 24가 TypeScript를 직접 실행한다(빌드 없음). 따라서 enum 등 
 
 `src/cli.ts`가 아래 단계를 순서대로 호출하며, 병합을 제외한 각 단계는 산출물이 이미 있으면 건너뛴다(병합은 매번 다시 수행). 중단 후 같은 명령을 다시 실행하면 이어서 진행되고, 특정 단계를 다시 만들려면 그 산출물을 지우고 재실행한다.
 
+전체 작업이 끝나면 `work/{content-id}` 폴더를 `work/YYMMDD_{title}`(실행 날짜, 제목은 폴더명에 쓸 수 없는 문자를 제거)로 변경한다. 같은 URL을 다시 실행하면 `meta.json`의 id로 변경된 폴더를 찾아 그 안에서 이어서 진행하며, 이미 변경된 폴더 이름은 유지한다.
+
 | 단계 | 모듈 | 산출물 (`work/{content-id}/`) |
 |---|---|---|
 | 다운로드 | `src/download.ts` | `meta.json`, `source.wav` (16kHz mono PCM) |
@@ -35,7 +37,7 @@ Node 24가 TypeScript를 직접 실행한다(빌드 없음). 따라서 enum 등 
 
 ## Live 번역 관련 제약
 
-- 모델은 `gemini-3.5-live-translate-preview`, context 분석 모델은 `gemini-3.8-flash`(`GEMINI_CONTEXT_MODEL`로 교체 가능).
+- 모델은 `gemini-3.5-live-translate-preview`, context 분석 모델은 `gemini-4-hydrogen`(`GEMINI_CONTEXT_MODEL`로 교체 가능).
 - Live 연결 수명이 약 10분이라 무음 지점 기준 최대 8분 구간으로 나눠 구간당 세션 하나를 순차 처리한다.
 - 구간 실패 시 그 구간만 최대 3회 재시도하며, 세션 생성 간격은 12초 이상 둔다.
 - `src/live.ts`의 `DEFAULT_OPTIONS`(전송 속도, 꼬리 무음, 완료 판정 시간)와 `src/segment.ts`의 `MAX_SEGMENT_SEC`는 실제 API로 실측하기 전의 초기값이다.
