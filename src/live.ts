@@ -48,13 +48,26 @@ export const realClock: Clock = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+/**
+ * The model streams audio continuously in real time, sending digital silence
+ * (all-zero samples) whenever it is not speaking. Samples at or below this
+ * amplitude count as silence.
+ */
+export const SILENCE_PEAK = 100;
+
 export interface TranslateOptions {
   /** Send speed relative to real time. */
   pace: number;
   /** Silence appended after the segment so the model finishes its last utterance. */
   tailSilenceMs: number;
-  /** The segment is complete once no audio has arrived for this long after input ended. */
+  /**
+   * The segment is complete once this much continuous silent audio has been
+   * received after input ended. (Measured: the last utterance ends about 3s
+   * after the input does.)
+   */
   idleMs: number;
+  /** Silence kept after the last translated speech; the rest of the tail is dropped. */
+  trailingPadMs: number;
   /** Allowed time beyond the segment's own send duration before giving up. */
   graceMs: number;
   pollMs: number;
@@ -64,6 +77,7 @@ export const DEFAULT_OPTIONS: TranslateOptions = {
   pace: 1,
   tailSilenceMs: 2000,
   idleMs: 5000,
+  trailingPadMs: 500,
   graceMs: 90_000,
   pollMs: 250,
 };
@@ -85,10 +99,24 @@ export function chunkPcm(pcm: Buffer, size = CHUNK_BYTES): Buffer[] {
 }
 
 /**
+ * Byte offset just past the last non-silent 16-bit sample, or 0 when the PCM
+ * is silent throughout. `from` is where the first whole sample starts.
+ */
+export function speechEnd(pcm: Buffer, from = 0, peak = SILENCE_PEAK): number {
+  const last = from + Math.floor((pcm.length - from) / 2) * 2 - 2;
+  for (let i = last; i >= from; i -= 2) {
+    if (Math.abs(pcm.readInt16LE(i)) > peak) return i + 2;
+  }
+  return 0;
+}
+
+/**
  * Translates one segment in one Live session: streams the PCM at a paced rate,
- * collects the translated audio, and resolves once the output has gone quiet.
- * Throws when the session errors, closes early, times out, or stays silent
- * although speech was heard.
+ * collects the translated audio, and resolves once the translated speech has
+ * ended, i.e. `idleMs` of silent audio has arrived after the input ended.
+ * The returned audio is cut shortly after the last speech.
+ * Throws when the session errors, closes early, times out, or produces no
+ * speech although speech was heard.
  */
 export async function translateSegment(
   pcm: Buffer,
@@ -100,7 +128,10 @@ export async function translateSegment(
   const audio: Buffer[] = [];
   let transcript = '';
   let inputTranscript = '';
-  let lastAudioAt = 0;
+  /** Bytes of translated audio received so far. */
+  let received = 0;
+  /** Offset in the received audio just past the last speech; 0 while there is none. */
+  let speechEndAt = 0;
   let done = false;
   let failure: Error | undefined;
   const assertAlive = () => {
@@ -112,8 +143,12 @@ export async function translateSegment(
       const content = message.serverContent;
       for (const part of content?.modelTurn?.parts ?? []) {
         if (part.inlineData?.data) {
-          audio.push(Buffer.from(part.inlineData.data, 'base64'));
-          lastAudioAt = clock.now();
+          const chunk = Buffer.from(part.inlineData.data, 'base64');
+          // `received % 2` skips a byte that completes a sample split across chunks.
+          const end = speechEnd(chunk, received % 2);
+          if (end > 0) speechEndAt = received + end;
+          received += chunk.length;
+          audio.push(chunk);
         }
       }
       transcript += content?.outputTranscription?.text ?? '';
@@ -144,8 +179,11 @@ export async function translateSegment(
     }
     session.sendRealtimeInput({ audioStreamEnd: true });
 
-    const inputEndedAt = clock.now();
-    while (clock.now() - Math.max(lastAudioAt, inputEndedAt) < opts.idleMs) {
+    // Only silence received after this point counts: silence that arrived earlier
+    // says nothing about whether the last utterance has been translated yet.
+    const receivedAtInputEnd = received;
+    const idleBytes = (opts.idleMs / 1000) * OUTPUT_BYTES_PER_SEC;
+    while (received - Math.max(speechEndAt, receivedAtInputEnd) < idleBytes) {
       assertAlive();
       if (clock.now() > deadline) throw new Error('Live 응답 대기 시간 초과');
       await clock.sleep(opts.pollMs);
@@ -156,11 +194,15 @@ export async function translateSegment(
     session.close();
   }
 
-  const result = { audio: Buffer.concat(audio), transcript, inputTranscript };
-  if (result.audio.length === 0 && inputTranscript.trim() !== '') {
-    throw new Error('발화가 인식되었지만 번역 음성이 생성되지 않음');
+  if (speechEndAt === 0) {
+    if (inputTranscript.trim() !== '') {
+      throw new Error('발화가 인식되었지만 번역 음성이 생성되지 않음');
+    }
+    return { audio: Buffer.alloc(0), transcript, inputTranscript };
   }
-  return result;
+  const padBytes = Math.round((opts.trailingPadMs / 1000) * OUTPUT_BYTES_PER_SEC);
+  const keep = Math.min(received, speechEndAt + padBytes);
+  return { audio: Buffer.concat(audio).subarray(0, keep), transcript, inputTranscript };
 }
 
 /** Real `Connect` backed by the Gemini Live API, with `systemInstruction` as translation guidance. */

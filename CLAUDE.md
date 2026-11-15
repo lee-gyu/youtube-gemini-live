@@ -40,4 +40,6 @@ Node 24가 TypeScript를 직접 실행한다(빌드 없음). 따라서 enum 등 
 - 모델은 `gemini-3.5-live-translate-preview`, context 분석 모델은 `gemini-4-hydrogen`(`GEMINI_CONTEXT_MODEL`로 교체 가능).
 - Live 연결 수명이 약 10분이라 무음 지점 기준 최대 8분 구간으로 나눠 구간당 세션 하나를 순차 처리한다.
 - 구간 실패 시 그 구간만 최대 3회 재시도하며, 세션 생성 간격은 12초 이상 둔다.
-- `src/live.ts`의 `DEFAULT_OPTIONS`(전송 속도, 꼬리 무음, 완료 판정 시간)와 `src/segment.ts`의 `MAX_SEGMENT_SEC`는 실제 API로 실측하기 전의 초기값이다.
+- 이 모델은 입력 시작 약 3초 뒤부터 음성을 실시간 속도로 끊임없이 보내며, 말하지 않는 동안에는 샘플 값 0인 무음을 보낸다(실측). 따라서 "음성 수신이 멈춤"은 완료 신호가 될 수 없고 `turnComplete` 같은 완료 플래그도 오지 않는다.
+- 구간 완료 판정: 입력 전송이 끝난 뒤 무음이 5초분 연속 수신되면 완료(마지막 발화는 입력 종료 후 약 3초 안에 끝남). 저장할 때는 마지막 발화 뒤 0.5초만 남기고 꼬리 무음을 잘라낸다.
+- `src/live.ts`의 `DEFAULT_OPTIONS.pace`(전송 속도 1배)와 `src/segment.ts`의 `MAX_SEGMENT_SEC`(8분)는 8분 구간 전체로는 아직 실측하지 않은 초기값이다.
