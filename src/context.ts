@@ -8,7 +8,7 @@ import { realClock } from './live.ts';
 import { exists, writeAtomic } from './workdir.ts';
 import type { WorkPaths } from './workdir.ts';
 
-export const DEFAULT_CONTEXT_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_CONTEXT_MODEL = 'gemini-4-hydrogen';
 const MAX_DESCRIPTION_CHARS = 2000;
 
 /** Prompt asking the analysis model for translation guidance in the context.md layout. */
