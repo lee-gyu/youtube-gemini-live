@@ -1,0 +1,23 @@
+[tools]
+node = "24"
+yt-dlp = "latest"
+ffmpeg = "latest"
+
+[env]
+_.file = ".env"
+
+[tasks.install]
+description = "Install node dependencies"
+run = "npm install"
+
+[tasks.translate]
+description = "Translate a YouTube video's audio into Korean speech: mise run translate \"<youtube URL>\""
+run = "node src/cli.ts"
+
+[tasks.test]
+description = "Run unit tests"
+run = "node --test \"test/**/*.test.ts\""
+
+[tasks.typecheck]
+description = "Type-check sources"
+run = "npx tsc --noEmit"
