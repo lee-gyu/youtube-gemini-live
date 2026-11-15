@@ -6,7 +6,7 @@ import { createLiveConnect, translateSegment } from './live.ts';
 import { merge } from './merge.ts';
 import { splitSegments } from './segment.ts';
 import { translateSegments } from './translate.ts';
-import { workPaths } from './workdir.ts';
+import { finalizeWorkDir, findWorkDir, pathsIn, workPaths } from './workdir.ts';
 
 function parseUrl(arg: string | undefined): string {
   if (!arg) throw new Error('사용법: mise run translate "<youtube URL>"');
@@ -33,7 +33,9 @@ async function main(): Promise<void> {
 
   log('[1/5] 영상 정보 조회 및 음성 다운로드');
   const meta = await fetchMeta(url);
-  const paths = workPaths(meta.id);
+  // A finished video lives in a renamed directory; reuse it so a re-run resumes there.
+  const existing = await findWorkDir(meta.id);
+  const paths = existing ? pathsIn(existing) : workPaths(meta.id);
   await download(meta, paths);
   log(`      ${meta.title} (${Math.round(meta.duration)}초) → ${paths.dir}`);
 
@@ -53,7 +55,9 @@ async function main(): Promise<void> {
 
   log('[5/5] 음성 병합');
   await merge(segments, paths);
-  log(`완료: ${paths.output}`);
+
+  const finalDir = await finalizeWorkDir(paths.dir, meta);
+  log(`완료: ${pathsIn(finalDir).output}`);
 }
 
 main().catch((err: unknown) => {
